@@ -1,17 +1,17 @@
 from fastapi import FastAPI, Query, Body
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
-from datetime import datetime
 import httpx
-import pandas as pd
 import os
+from fastapi.responses import JSONResponse
+from datetime import datetime
+from fastapi.staticfiles import StaticFiles
+import pandas as pd
 
 app = FastAPI()
 
-API_KEY = os.getenv("CRELATE_API_KEY", "your-default-api-key")  # Replace default for local dev
+API_KEY = os.getenv("CRELATE_API_KEY") or "46gcq4k7bw9yysb9thazasxxwy"
 BASE_URL = "https://app.crelate.com/api3"
 
-# Optional: Load local Excel fallback (skipped on Render if file doesn't exist)
+# Load local contact fallback database
 EXCEL_CONTACTS_PATH = "API Contacts.xlsx"
 try:
     local_contacts_df = pd.read_excel(EXCEL_CONTACTS_PATH)
@@ -48,6 +48,7 @@ async def fetch_crelate_data(path: str, params: dict = {}):
                 "raw_text": response.text
             }
 
+# Shared helper to filter and return contacts
 async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None, created_by=None, owner=None, primary_owner=None):
     params = {"limit": limit, "offset": offset}
     raw_data = await fetch_crelate_data("contacts", params)
@@ -188,10 +189,4 @@ async def get_contact_artifacts_by_id(contact_id: str):
     except Exception as e:
         return {"error": "Exception retrieving contact artifacts", "detail": str(e)}
 
-# Optional static file mount (safe to ignore or remove if not needed)
 app.mount("/.well-known", StaticFiles(directory=".well-known"), name="well-known")
-
-# For local dev only (Render ignores this)
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,0 +1,18 @@
+{
+  "schema_version": "v1",
+  "name_for_model": "crelate_api_plugin",
+  "name_for_human": "Crelate API",
+  "description_for_model": "Plugin for searching and posting to Crelate via FastAPI. Supports reading contacts and posting Screen activities.",
+  "description_for_human": "Query contacts and post Screen activities in Crelate.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://65ca46ad4813.ngrok-free.app/openapi.json",
+    "is_user_authenticated": false
+  },
+  "logo_url": "https://65ca46ad4813.ngrok-free.app/static/logo.png",
+  "contact_email": "you@example.com",
+  "legal_info_url": "https://yourdomain.com/legal"
+}
