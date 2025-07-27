@@ -27,6 +27,25 @@ def lookup_local_contact(full_name: str):
         return match.iloc[0]["id"]
     return None
 
+def filter_local_contacts(full_name=None, tag=None, created_by=None, owner=None, primary_owner=None):
+    if local_contacts_df.empty:
+        return []
+
+    df = local_contacts_df.copy()
+
+    if full_name:
+        df = df[df["full name"].str.lower() == full_name.lower()]
+    if created_by and "created by" in df.columns:
+        df = df[df["created by"].str.lower() == created_by.lower()]
+    if owner and "owner" in df.columns:
+        df = df[df["owner"].str.lower() == owner.lower()]
+    if primary_owner and "primary owner" in df.columns:
+        df = df[df["primary owner"].str.lower() == primary_owner.lower()]
+    if tag and "tags" in df.columns:
+        df = df[df["tags"].str.lower().str.contains(tag.lower(), na=False)]
+
+    return df.to_dict(orient="records")
+
 async def fetch_crelate_data(path: str, params: dict = {}):
     url = f"{BASE_URL}/{path}"
     params["api_key"] = API_KEY
@@ -54,6 +73,7 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
     raw_data = await fetch_crelate_data("contacts", params)
     if not raw_data or not isinstance(raw_data, dict):
         return []
+
     contacts = raw_data.get("Data", [])
 
     def matches_filters(contact):
@@ -99,6 +119,9 @@ async def get_contacts(
 ):
     try:
         filtered = await fetch_filtered_contacts(limit, offset, full_name, tag, created_by, owner, primary_owner)
+        if not filtered:
+            # fallback to Excel
+            filtered = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
         return {"records": filtered}
     except Exception as e:
         return {"error": "Exception caught in get_contacts", "detail": str(e)}
