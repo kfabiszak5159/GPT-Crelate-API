@@ -15,16 +15,19 @@ BASE_URL = "https://app.crelate.com/api3"
 EXCEL_CONTACTS_PATH = "API Contacts.xlsx"
 try:
     local_contacts_df = pd.read_excel(EXCEL_CONTACTS_PATH)
-    local_contacts_df.columns = local_contacts_df.columns.str.strip().str.lower()
+    local_contacts_df.columns = local_contacts_df.columns.str.strip()
 except Exception:
     local_contacts_df = pd.DataFrame()
 
 def lookup_local_contact(full_name: str):
     if local_contacts_df.empty:
         return None
-    match = local_contacts_df[local_contacts_df["full name"].str.lower() == full_name.strip().lower()]
-    if not match.empty:
-        return match.iloc[0]["id"]
+    df = local_contacts_df.copy()
+    if "Full Name" not in df.columns:
+        return None
+    match = df[df["Full Name"].astype(str).str.lower() == full_name.strip().lower()]
+    if not match.empty and "Id" in match.columns:
+        return match.iloc[0]["Id"]
     return None
 
 def filter_local_contacts(full_name=None, tag=None, created_by=None, owner=None, primary_owner=None):
@@ -33,16 +36,23 @@ def filter_local_contacts(full_name=None, tag=None, created_by=None, owner=None,
 
     df = local_contacts_df.copy()
 
+    def safe_filter(col, val, contains=False):
+        if col not in df.columns:
+            return df
+        series = df[col].astype(str).str.lower()
+        val = val.lower()
+        return df[series.str.contains(val, na=False)] if contains else df[series == val]
+
     if full_name:
-        df = df[df["full name"].str.lower() == full_name.lower()]
-    if created_by and "created by" in df.columns:
-        df = df[df["created by"].str.lower() == created_by.lower()]
-    if owner and "owner" in df.columns:
-        df = df[df["owner"].str.lower() == owner.lower()]
-    if primary_owner and "primary owner" in df.columns:
-        df = df[df["primary owner"].str.lower() == primary_owner.lower()]
-    if tag and "tags" in df.columns:
-        df = df[df["tags"].str.lower().str.contains(tag.lower(), na=False)]
+        df = safe_filter("Full Name", full_name)
+    if created_by:
+        df = safe_filter("Created By", created_by)
+    if owner:
+        df = safe_filter("Owner", owner)
+    if primary_owner:
+        df = safe_filter("Primary Owner", primary_owner)
+    if tag:
+        df = safe_filter("Tags", tag, contains=True)
 
     return df.to_dict(orient="records")
 
@@ -73,7 +83,6 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
     raw_data = await fetch_crelate_data("contacts", params)
     if not raw_data or not isinstance(raw_data, dict):
         return []
-
     contacts = raw_data.get("Data", [])
 
     def matches_filters(contact):
@@ -120,7 +129,6 @@ async def get_contacts(
     try:
         filtered = await fetch_filtered_contacts(limit, offset, full_name, tag, created_by, owner, primary_owner)
         if not filtered:
-            # fallback to Excel
             filtered = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
         return {"records": filtered}
     except Exception as e:
