@@ -74,6 +74,13 @@ async def fetch_crelate_data(path: str, params: dict = {}):
                 "raw_text": response.text
             }
 
+def safe_get(d, *keys):
+    for key in keys:
+        if d is None:
+            return ""
+        d = d.get(key)
+    return d or ""
+
 async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None, created_by=None, owner=None, primary_owner=None):
     params = {"limit": limit, "offset": offset}
     raw_data = await fetch_crelate_data("contacts", params)
@@ -111,10 +118,26 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
                 return False
         return True
 
-    for contact in contacts:
-        contact["Description"] = contact.get("Description", "")
+    results = []
+    for c in contacts:
+        if matches_filters(c):
+            results.append({
+                "Id": c.get("Id", ""),
+                "FullName": c.get("FullName", ""),
+                "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
+                "PrimaryOwner": next((o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")), ""),
+                "Tags": [t.get("Title") for v in (c.get("Tags") or {}).values() for t in (v if isinstance(v, list) else []) if "Title" in t],
+                "Location": safe_get(c.get("Addresses_Home"), "Value") or safe_get(c.get("Addresses_Business"), "Value"),
+                "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
+                "Email_Personal": safe_get(c.get("EmailAddresses_Personal"), "Value"),
+                "Phone_Work": safe_get(c.get("PhoneNumbers_Work_Main"), "Value"),
+                "Phone_Mobile": safe_get(c.get("PhoneNumbers_Mobile"), "Value"),
+                "LastActivityDate": c.get("LastActivityDate", ""),
+                "LastActivityRegarding": safe_get(c.get("LastActivityRegardingId"), "Title"),
+                "Description": c.get("Description", "")
+            })
 
-    return [c for c in contacts if matches_filters(c)]
+    return results
 
 @app.get("/contacts")
 async def get_contacts(
