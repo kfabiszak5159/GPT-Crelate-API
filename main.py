@@ -8,50 +8,54 @@ import pandas as pd
 
 app = FastAPI()
 
-API_KEY = os.getenv("CRELATE_API_KEY") or "46gcq4k7bw9yysb9thazasxxwy"
+API_KEY = os.getenv("CRELATE_API_KEY") or "your_default_api_key_here"
 BASE_URL = "https://app.crelate.com/api3"
 
-# Load local contact fallback database
 EXCEL_CONTACTS_PATH = "API Contacts.xlsx"
 try:
     local_contacts_df = pd.read_excel(EXCEL_CONTACTS_PATH)
-    local_contacts_df.columns = local_contacts_df.columns.str.strip()
+    local_contacts_df.columns = local_contacts_df.columns.str.strip().str.lower()
 except Exception:
     local_contacts_df = pd.DataFrame()
 
 def lookup_local_contact(full_name: str):
     if local_contacts_df.empty:
         return None
-    match = local_contacts_df[local_contacts_df["Full Name"].str.lower() == full_name.strip().lower()]
+    match = local_contacts_df[local_contacts_df["full name"].str.lower() == full_name.strip().lower()]
     if not match.empty:
-        return match.iloc[0]["Id"]
+        return match.iloc[0].get("id")
     return None
 
-def filter_local_contacts(full_name=None, tag=None, created_by=None, owner=None, primary_owner=None):
+def filter_local_contacts(**filters):
     if local_contacts_df.empty:
         return []
 
     df = local_contacts_df.copy()
 
-    def safe_filter(col, val, contains=False):
-        if col not in df.columns:
-            return df
-        series = df[col].astype(str).str.lower()
-        val = val.lower()
-        return df[series.str.contains(val, na=False)] if contains else df[series == val]
+    def lower_eq(column, value):
+        return df[column].str.lower() == value.lower()
 
-    if full_name:
-        df = safe_filter("Full Name", full_name)
-    if created_by:
-        df = safe_filter("Created By", created_by)
-    if owner:
-        df = safe_filter("Owner", owner)
-    if primary_owner:
-        df = safe_filter("Primary Owner", primary_owner)
-    if tag:
-        df = safe_filter("Tags", tag, contains=True)
+    def lower_contains(column, value):
+        return df[column].str.lower().str.contains(value.lower(), na=False)
 
-    return df.fillna("").to_dict(orient="records")
+    if filters.get("full_name"):
+        df = df[lower_eq("full name", filters["full_name"])]
+    if filters.get("created_by") and "created by" in df.columns:
+        df = df[lower_eq("created by", filters["created_by"])]
+    if filters.get("owner") and "owner" in df.columns:
+        df = df[lower_eq("owner", filters["owner"])]
+    if filters.get("primary_owner") and "primary owner" in df.columns:
+        df = df[lower_eq("primary owner", filters["primary_owner"])]
+    if filters.get("tag") and "tags" in df.columns:
+        df = df[lower_contains("tags", filters["tag"])]
+    if filters.get("description") and "description" in df.columns:
+        df = df[lower_contains("description", filters["description"])]
+    if filters.get("last_activity_date") and "last activity date" in df.columns:
+        df = df[lower_contains("last activity date", filters["last_activity_date"])]
+    if filters.get("last_activity_regarding") and "last activity regarding" in df.columns:
+        df = df[lower_contains("last activity regarding", filters["last_activity_regarding"])]
+
+    return df.to_dict(orient="records")
 
 async def fetch_crelate_data(path: str, params: dict = {}):
     url = f"{BASE_URL}/{path}"
@@ -74,44 +78,60 @@ async def fetch_crelate_data(path: str, params: dict = {}):
                 "raw_text": response.text
             }
 
-async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None, created_by=None, owner=None, primary_owner=None):
-    params = {"limit": limit, "offset": offset}
-    raw_data = await fetch_crelate_data("contacts", params)
-    if not raw_data or not isinstance(raw_data, dict):
-        return []
+def extract_display_fields(contact):
+    return {
+        "FullName": contact.get("FullName"),
+        "Description": contact.get("Description"),
+        "Email_Work": contact.get("EmailAddresses_Work", {}).get("Value"),
+        "Email_Personal": contact.get("EmailAddresses_Personal", {}).get("Value"),
+        "Phone": contact.get("PhoneNumbers_Work_Main", {}).get("Value") or contact.get("PhoneNumbers_Mobile", {}).get("Value"),
+        "LastActivityDate": contact.get("LastActivityDate"),
+        "LastActivityRegarding": contact.get("LastActivityRegardingId", {}).get("Title"),
+        "Tags": contact.get("Tags")
+    }
 
-    contacts = raw_data.get("Data", [])
+def matches_filters(contact, **filters):
+    def safe_lower(val):
+        return val.lower() if isinstance(val, str) else ""
 
-    def matches_filters(contact):
-        if not isinstance(contact, dict):
+    for key, value in filters.items():
+        if not value:
+            continue
+
+        if key == "full_name" and safe_lower(contact.get("FullName", "")) != value.lower():
             return False
-        if full_name and contact.get("FullName", "").lower() != full_name.lower():
-            return False
-        if created_by:
+        if key == "created_by":
             creator = contact.get("CreatedById") or {}
-            if creator.get("Title", "").lower() != created_by.lower():
+            if safe_lower(creator.get("Title", "")) != value.lower():
                 return False
-        if owner:
+        if key == "owner":
             owners = contact.get("Owners") or []
-            if not any(o.get("Title", "").lower() == owner.lower() for o in owners if isinstance(o, dict)):
+            if not any(safe_lower(o.get("Title", "")) == value.lower() for o in owners if isinstance(o, dict)):
                 return False
-        if primary_owner:
+        if key == "primary_owner":
             owners = contact.get("Owners") or []
-            primary = next((o for o in owners if o.get("IsPrimary") and isinstance(o, dict)), None)
-            if not primary or primary.get("Title", "").lower() != primary_owner.lower():
+            primary = next((o for o in owners if o.get("IsPrimary")), {})
+            if safe_lower(primary.get("Title", "")) != value.lower():
                 return False
-        if tag:
+        if key == "tag":
             tags_dict = contact.get("Tags") or {}
-            match = False
-            for tag_list in tags_dict.values():
-                if isinstance(tag_list, list) and any(t.get("Title", "").lower() == tag.lower() for t in tag_list if isinstance(t, dict)):
-                    match = True
-                    break
+            match = any(
+                value.lower() in (t.get("Title", "").lower() or "")
+                for taglist in tags_dict.values()
+                if isinstance(taglist, list)
+                for t in taglist
+            )
             if not match:
                 return False
-        return True
-
-    return [c for c in contacts if matches_filters(c)]
+        if key == "description" and safe_lower(contact.get("Description", "")).find(value.lower()) == -1:
+            return False
+        if key == "last_activity_date" and safe_lower(str(contact.get("LastActivityDate", ""))).find(value.lower()) == -1:
+            return False
+        if key == "last_activity_regarding":
+            regarding = contact.get("LastActivityRegardingId", {})
+            if not isinstance(regarding, dict) or safe_lower(regarding.get("Title", "")) != value.lower():
+                return False
+    return True
 
 @app.get("/contacts")
 async def get_contacts(
@@ -121,13 +141,47 @@ async def get_contacts(
     tag: str = None,
     created_by: str = None,
     owner: str = None,
-    primary_owner: str = None
+    primary_owner: str = None,
+    description: str = None,
+    last_activity_date: str = None,
+    last_activity_regarding: str = None
 ):
     try:
-        filtered = await fetch_filtered_contacts(limit, offset, full_name, tag, created_by, owner, primary_owner)
+        params = {"limit": limit, "offset": offset}
+        raw_data = await fetch_crelate_data("contacts", params)
+        if not raw_data or "Data" not in raw_data:
+            raise ValueError("Invalid response from Crelate API")
+
+        filtered = [
+            extract_display_fields(c)
+            for c in raw_data["Data"]
+            if matches_filters(
+                c,
+                full_name=full_name,
+                tag=tag,
+                created_by=created_by,
+                owner=owner,
+                primary_owner=primary_owner,
+                description=description,
+                last_activity_date=last_activity_date,
+                last_activity_regarding=last_activity_regarding
+            )
+        ]
+
         if not filtered:
-            filtered = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
+            filtered = filter_local_contacts(
+                full_name=full_name,
+                tag=tag,
+                created_by=created_by,
+                owner=owner,
+                primary_owner=primary_owner,
+                description=description,
+                last_activity_date=last_activity_date,
+                last_activity_regarding=last_activity_regarding
+            )
+
         return {"records": filtered}
+
     except Exception as e:
         return {"error": "Exception caught in get_contacts", "detail": str(e)}
 
@@ -183,11 +237,16 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
         if not full_name or not notes:
             return JSONResponse(status_code=400, content={"error": "Missing required FullName or Notes"})
 
-        contact_list = await fetch_filtered_contacts(full_name=full_name)
+        params = {"limit": 100, "offset": 0}
+        raw_data = await fetch_crelate_data("contacts", params)
+
         contact_id = None
-        if contact_list:
-            contact_id = contact_list[0].get("Id")
-        else:
+        if raw_data and "Data" in raw_data:
+            match = next((c for c in raw_data["Data"] if c.get("FullName", "").lower() == full_name.lower()), None)
+            if match:
+                contact_id = match.get("Id")
+
+        if not contact_id:
             contact_id = lookup_local_contact(full_name)
 
         if not contact_id:
@@ -211,7 +270,6 @@ async def get_contact_artifacts_by_id(contact_id: str):
                     "response": response.text
                 }
             data = response.json()
-
         return {"artifacts": data.get("Data", []), "total": data.get("Metadata", {}).get("TotalRecords")}
 
     except Exception as e:
