@@ -22,11 +22,8 @@ except Exception:
 def lookup_local_contact(full_name: str):
     if local_contacts_df.empty:
         return None
-    df = local_contacts_df.copy()
-    if "Full Name" not in df.columns:
-        return None
-    match = df[df["Full Name"].astype(str).str.lower() == full_name.strip().lower()]
-    if not match.empty and "Id" in match.columns:
+    match = local_contacts_df[local_contacts_df["Full Name"].str.lower() == full_name.strip().lower()]
+    if not match.empty:
         return match.iloc[0]["Id"]
     return None
 
@@ -54,7 +51,7 @@ def filter_local_contacts(full_name=None, tag=None, created_by=None, owner=None,
     if tag:
         df = safe_filter("Tags", tag, contains=True)
 
-    return df.to_dict(orient="records")
+    return df.fillna("").to_dict(orient="records")
 
 async def fetch_crelate_data(path: str, params: dict = {}):
     url = f"{BASE_URL}/{path}"
@@ -77,12 +74,12 @@ async def fetch_crelate_data(path: str, params: dict = {}):
                 "raw_text": response.text
             }
 
-# Shared helper to filter and return contacts
 async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None, created_by=None, owner=None, primary_owner=None):
     params = {"limit": limit, "offset": offset}
     raw_data = await fetch_crelate_data("contacts", params)
     if not raw_data or not isinstance(raw_data, dict):
         return []
+
     contacts = raw_data.get("Data", [])
 
     def matches_filters(contact):
