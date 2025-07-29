@@ -226,15 +226,28 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
 
 @app.get("/test-contacts-filter")
 async def test_contacts_filter(created_by: str = "Chad Martin"):
-    params = {"api_key": API_KEY, "CreatedBy": created_by}
+    params = {
+        "api_key": API_KEY,
+        "CreatedBy": created_by  # We're testing if this param works
+    }
     url = f"{BASE_URL}/contacts"
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, params=params)
-        return {
-            "requested_url": str(response.url),
-            "status_code": response.status_code,
-            "response": await response.json() if response.status_code == 200 else response.text
-        }
+        try:
+            response = await client.get(url, params=params)
+            content_type = response.headers.get("Content-Type", "")
+            if "application/json" in content_type:
+                return {
+                    "requested_url": str(response.url),
+                    "status_code": response.status_code,
+                    "response": response.json()  # ✅ no await
+                }
+            return {
+                "requested_url": str(response.url),
+                "status_code": response.status_code,
+                "raw_text": response.text
+            }
+        except Exception as e:
+            return {"error": "Exception calling Crelate", "detail": str(e)}
 
 @app.get("/contacts/id/{contact_id}/artifacts")
 async def get_contact_artifacts_by_id(contact_id: str):
