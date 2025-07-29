@@ -224,6 +224,18 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
     except Exception as e:
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
+@app.get("/test-contacts-filter")
+async def test_contacts_filter(created_by: str = "Chad Martin"):
+    params = {"api_key": API_KEY, "CreatedBy": created_by}
+    url = f"{BASE_URL}/contacts"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, params=params)
+        return {
+            "requested_url": str(response.url),
+            "status_code": response.status_code,
+            "response": await response.json() if response.status_code == 200 else response.text
+        }
+
 @app.get("/contacts/id/{contact_id}/artifacts")
 async def get_contact_artifacts_by_id(contact_id: str):
     try:
