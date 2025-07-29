@@ -225,29 +225,27 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
 @app.get("/test-contacts-filter")
-async def test_contacts_filter(created_by: str = "Chad Martin"):
-    params = {
-        "api_key": API_KEY,
-        "CreatedBy": created_by  # We're testing if this param works
-    }
+async def test_contacts_filter(created_by: str = Query(...)):
+    """
+    Test if server-side filtering by 'CreatedBy' is supported on the Crelate /contacts endpoint.
+    """
     url = f"{BASE_URL}/contacts"
+    params = {"api_key": API_KEY, "CreatedBy": created_by}  # Hypothetical, not confirmed to be supported
+
     async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, params=params)
-            content_type = response.headers.get("Content-Type", "")
-            if "application/json" in content_type:
-                return {
-                    "requested_url": str(response.url),
-                    "status_code": response.status_code,
-                    "response": response.json()  # ✅ no await
-                }
-            return {
-                "requested_url": str(response.url),
-                "status_code": response.status_code,
-                "raw_text": response.text
-            }
-        except Exception as e:
-            return {"error": "Exception calling Crelate", "detail": str(e)}
+        response = await client.get(url, params=params)
+
+    try:
+        json_response = response.json()
+    except Exception as e:
+        json_response = {"error": "Failed to parse JSON", "raw_text": response.text}
+
+    return {
+        "requested_url": str(response.url),
+        "status_code": response.status_code,
+        "response": json_response
+    }
+
 
 @app.get("/contacts/id/{contact_id}/artifacts")
 async def get_contact_artifacts_by_id(contact_id: str):
