@@ -224,27 +224,24 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
     except Exception as e:
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
-@app.get("/test-contacts-filter")
-async def test_contacts_filter(created_by: str = Query(...)):
-    """
-    Test if server-side filtering by 'CreatedBy' is supported on the Crelate /contacts endpoint.
-    """
-    url = f"{BASE_URL}/contacts"
-    params = {"api_key": API_KEY, "CreatedBy": created_by}  # Hypothetical, not confirmed to be supported
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, params=params)
-
+@app.get("/test-jobs-filter")
+async def test_jobs_filter(created_by: str = None):
     try:
-        json_response = response.json()
-    except Exception as e:
-        json_response = {"error": "Failed to parse JSON", "raw_text": response.text}
+        params = {"api_key": API_KEY}
+        if created_by:
+            params["CreatedBy"] = created_by  # Apply server-side filter
 
-    return {
-        "requested_url": str(response.url),
-        "status_code": response.status_code,
-        "response": json_response
-    }
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{BASE_URL}/jobs", params=params)
+        
+        return {
+            "status": response.status_code,
+            "url": str(response.url),
+            "response": response.json() if response.status_code == 200 else response.text
+        }
+    except Exception as e:
+        return {"error": "Exception during jobs filter test", "detail": str(e)}
+
 
 
 @app.get("/contacts/id/{contact_id}/artifacts")
