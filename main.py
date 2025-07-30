@@ -225,7 +225,7 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
 @app.get("/test-jobs-filter")
-async def test_jobs_filter(created_by_id: str):
+async def test_jobs_filter(created_by_id: str = Query(...)):
     try:
         url = f"{BASE_URL}/jobs"
         params = {
@@ -253,12 +253,6 @@ async def test_jobs_filter(created_by_id: str):
             "detail": str(e)
         }
 
-
-    except Exception as e:
-        return {
-            "error": "Exception during job filter test",
-            "detail": str(e)
-        }
 
 @app.get("/contacts/id/{contact_id}/artifacts")
 async def get_contact_artifacts_by_id(contact_id: str):
