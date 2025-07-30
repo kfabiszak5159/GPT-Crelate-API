@@ -225,24 +225,33 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
 @app.get("/test-jobs-filter")
-async def test_jobs_filter(created_by: str = None):
+async def test_jobs_filter(created_by: str):
     try:
-        params = {"api_key": API_KEY}
-        if created_by:
-            params["CreatedBy"] = created_by  # Apply server-side filter
+        url = f"{BASE_URL}/jobs"
+        params = {
+            "api_key": API_KEY,
+            "CreatedById.Title": created_by
+        }
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{BASE_URL}/jobs", params=params)
-        
+            response = await client.get(url, params=params)
+
+        try:
+            json_data = response.json()
+        except Exception:
+            json_data = {"raw_text": response.text}
+
         return {
             "status": response.status_code,
             "url": str(response.url),
-            "response": response.json() if response.status_code == 200 else response.text
+            "response": json_data
         }
+
     except Exception as e:
-        return {"error": "Exception during jobs filter test", "detail": str(e)}
-
-
+        return {
+            "error": "Exception during job filter test",
+            "detail": str(e)
+        }
 
 @app.get("/contacts/id/{contact_id}/artifacts")
 async def get_contact_artifacts_by_id(contact_id: str):
