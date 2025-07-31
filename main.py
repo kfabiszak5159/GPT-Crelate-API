@@ -81,10 +81,9 @@ def safe_get(d, *keys):
         d = d.get(key)
     return d or ""
 
+# NOTE: per latest instruction, do NOT send 'name' param to the contacts endpoint here.
 async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None, created_by=None, owner=None, primary_owner=None, debug=False):
     params = {"limit": limit, "offset": offset}
-    if full_name:
-        params["name"] = full_name.strip()
     raw_data = await fetch_crelate_data("contacts", params)
     if debug:
         print(f"[fetch_filtered_contacts] params={params} raw_data={raw_data}")
@@ -244,7 +243,7 @@ async def test_contacts_filter(
         if tag_names:
             params["tag_names"] = tag_names
         if full_name:
-            params["name"] = full_name  # correct param for full name filtering
+            params["name"] = full_name  # correct param for full name filtering in this test endpoint
 
         url = f"{BASE_URL}/contacts"
         async with httpx.AsyncClient() as client:
