@@ -225,25 +225,30 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
 @app.get("/test-contacts-filter")
-async def test_contacts_filter(tag_name: str = None, name: str = None, limit: int = 100, offset: int = 0):
+async def test_contacts_filter(
+    tag_names: str = Query(None, alias="tag_names"),
+    full_name: str = Query(None, alias="full_name")
+):
     try:
-        params = {"limit": limit, "offset": offset}
-        if tag_name:
-            params["tag_names"] = tag_name
-        if name:
-            params["name"] = name
+        params = {}
+        if tag_names:
+            params["tag_names"] = tag_names
+        if full_name:
+            params["FullName"] = full_name  # Use PascalCase as seen in Crelate's response structure
 
-        data = await fetch_crelate_data("contacts", params)
-
-        return {
-            "status": 200,
-            "url": f"{BASE_URL}/contacts",
-            "params": params,
-            "response": data
-        }
+        url = f"{BASE_URL}/contacts"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, params={**params, "api_key": API_KEY})
+            result = {
+                "status": response.status_code,
+                "url": str(response.url),
+                "response": await response.json() if response.status_code == 200 else await response.aread()
+            }
+        return result
 
     except Exception as e:
-        return {"error": "Exception in test_contacts_filter", "detail": str(e)}
+        return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
+
 
 @app.get("/test-jobs-filter")
 async def test_jobs_filter(
