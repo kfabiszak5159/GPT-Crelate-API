@@ -81,9 +81,14 @@ def safe_get(d, *keys):
         d = d.get(key)
     return d or ""
 
-# NOTE: per latest instruction, do NOT send 'name' param to the contacts endpoint here.
+def normalize_name(name: str):
+    return " ".join(name.lower().replace(",", "").split())
+
 async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None, created_by=None, owner=None, primary_owner=None, debug=False):
     params = {"limit": limit, "offset": offset}
+    if full_name:
+        params["name"] = full_name.strip()  # enable server-side filtering by name
+
     raw_data = await fetch_crelate_data("contacts", params)
     if debug:
         print(f"[fetch_filtered_contacts] params={params} raw_data={raw_data}")
@@ -93,31 +98,34 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
 
     contacts = raw_data.get("Data", []) or []
 
+    target = normalize_name(full_name) if full_name else None
+
     def matches_filters(contact):
         if not isinstance(contact, dict):
             return False
-        if full_name:
-            contact_name = (contact.get("Name") or "").strip()
-            if full_name.strip().lower() not in contact_name.lower():
+        if target:
+            contact_name = normalize_name(contact.get("Name", "") or "")
+            reversed_contact = " ".join(reversed(contact_name.split()))
+            if target not in contact_name and target not in reversed_contact:
                 return False
         if created_by:
             creator = contact.get("CreatedById") or {}
-            if (creator.get("Title") or "").lower() != created_by.strip().lower():
+            if (creator.get("Title") or "").strip().lower() != created_by.strip().lower():
                 return False
         if owner:
             owners = contact.get("Owners") or []
-            if not any(((o.get("Title") or "").lower() == owner.strip().lower()) for o in owners if isinstance(o, dict)):
+            if not any(((o.get("Title") or "").strip().lower() == owner.strip().lower()) for o in owners if isinstance(o, dict)):
                 return False
         if primary_owner:
             owners = contact.get("Owners") or []
             primary = next((o for o in owners if o.get("IsPrimary") and isinstance(o, dict)), None)
-            if not primary or (primary.get("Title") or "").lower() != primary_owner.strip().lower():
+            if not primary or (primary.get("Title") or "").strip().lower() != primary_owner.strip().lower():
                 return False
         if tag:
             tags_dict = contact.get("Tags") or {}
             match = False
             for tag_list in tags_dict.values():
-                if isinstance(tag_list, list) and any(((t.get("Title") or "").lower() == tag.strip().lower()) for t in tag_list if isinstance(t, dict)):
+                if isinstance(tag_list, list) and any(((t.get("Title") or "").strip().lower() == tag.strip().lower()) for t in tag_list if isinstance(t, dict)):
                     match = True
                     break
             if not match:
@@ -129,7 +137,7 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
         if matches_filters(c):
             results.append({
                 "Id": c.get("Id", ""),
-                "FullName": c.get("Name", ""),  # using the actual Name field from Crelate
+                "FullName": c.get("Name", ""),
                 "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
                 "PrimaryOwner": next((o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")), ""),
                 "Tags": [t.get("Title") for v in (c.get("Tags") or {}).values() for t in (v if isinstance(v, list) else []) if isinstance(t, dict) and t.get("Title")],
@@ -160,7 +168,6 @@ async def get_contacts(
         filtered = await fetch_filtered_contacts(limit, offset, full_name, tag, created_by, owner, primary_owner, debug=debug)
         if filtered:
             return {"records": filtered}
-        # fallback only if remote yielded nothing
         fallback = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
         return {"records": fallback}
     except Exception as e:
@@ -243,14 +250,13 @@ async def test_contacts_filter(
         if tag_names:
             params["tag_names"] = tag_names
         if full_name:
-            params["name"] = full_name  # correct param for full name filtering in this test endpoint
+            params["name"] = full_name  # server-side name filter for test
 
         url = f"{BASE_URL}/contacts"
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params={**params, "api_key": API_KEY})
             status = response.status_code
             url_str = str(response.url)
-
             try:
                 parsed = response.json()
             except Exception:
