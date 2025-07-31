@@ -82,10 +82,10 @@ def safe_get(d, *keys):
     return d or ""
 
 async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None, created_by=None, owner=None, primary_owner=None, debug=False):
-    # Build params, and if full_name is provided, let Crelate filter by name server-side too.
+    # Let Crelate do initial name filtering if full_name provided
     params = {"limit": limit, "offset": offset}
     if full_name:
-        params["name"] = full_name  # use the correct query param so Crelate does initial filtering
+        params["name"] = full_name  # correct query param for full name filtering
     raw_data = await fetch_crelate_data("contacts", params)
     if debug:
         print("fetch_filtered_contacts raw_data:", raw_data)
@@ -98,7 +98,6 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
     def matches_filters(contact):
         if not isinstance(contact, dict):
             return False
-        # full_name: fallback/substring check in case server-side name param was insufficient
         if full_name:
             contact_name = contact.get("Name", "") or ""
             if full_name.strip().lower() not in contact_name.strip().lower():
@@ -132,7 +131,7 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
         if matches_filters(c):
             results.append({
                 "Id": c.get("Id", ""),
-                "FullName": c.get("Name", ""),
+                "FullName": c.get("Name", ""),  # using the actual Name field from Crelate
                 "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
                 "PrimaryOwner": next((o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")), ""),
                 "Tags": [t.get("Title") for v in (c.get("Tags") or {}).values() for t in (v if isinstance(v, list) else []) if "Title" in t],
@@ -147,7 +146,6 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
             })
 
     return results
-
 
 @app.get("/contacts")
 async def get_contacts(
@@ -244,7 +242,7 @@ async def test_contacts_filter(
         if tag_names:
             params["tag_names"] = tag_names
         if full_name:
-            params["name"] = full_name  # correct param for full name
+            params["name"] = full_name  # correct param for full name filtering
 
         url = f"{BASE_URL}/contacts"
         async with httpx.AsyncClient() as client:
@@ -252,14 +250,13 @@ async def test_contacts_filter(
             status = response.status_code
             url_str = str(response.url)
 
-            # .json() and .aread() are NOT coroutines in httpx async client, so don't await them
             try:
                 parsed = response.json()
             except Exception:
                 try:
                     parsed = response.aread()
                 except Exception:
-                    parsed = response.text  # fallback to string
+                    parsed = response.text
 
         return {
             "status": status,
@@ -302,8 +299,6 @@ async def test_jobs_filter(
             "detail": str(e)
         }
 
-
-
 @app.get("/contacts/id/{contact_id}/artifacts")
 async def get_contact_artifacts_by_id(contact_id: str):
     try:
@@ -314,7 +309,7 @@ async def get_contact_artifacts_by_id(contact_id: str):
                 return {
                     "error": "Failed to retrieve artifacts",
                     "status_code": response.status_code,
-                        "response": response.text
+                    "response": response.text
                 }
             data = response.json()
 
