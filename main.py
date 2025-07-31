@@ -224,6 +224,27 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
     except Exception as e:
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
+@app.get("/test-contacts-filter")
+async def test_contacts_filter(tag_name: str = None, name: str = None, limit: int = 100, offset: int = 0):
+    try:
+        params = {"limit": limit, "offset": offset}
+        if tag_name:
+            params["tag_names"] = tag_name
+        if name:
+            params["name"] = name
+
+        data = await fetch_crelate_data("contacts", params)
+
+        return {
+            "status": 200,
+            "url": f"{BASE_URL}/contacts",
+            "params": params,
+            "response": data
+        }
+
+    except Exception as e:
+        return {"error": "Exception in test_contacts_filter", "detail": str(e)}
+
 @app.get("/test-jobs-filter")
 async def test_jobs_filter(
     tag_names: str = Query(None, description="Filter jobs by tag"),
