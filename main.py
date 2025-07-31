@@ -225,31 +225,35 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
 @app.get("/test-jobs-filter")
-async def test_jobs_filter(created_by_id: str = Query(...)):
+async def test_jobs_filter(tag: str = "Direct Hire"):
+    """
+    Test endpoint to fetch jobs filtered by tag name (e.g., "Direct Hire").
+    """
     try:
-        url = f"{BASE_URL}/jobs"
         params = {
             "api_key": API_KEY,
-            "CreatedById.Id": created_by_id
+            "tag_names": tag
         }
-
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params)
+            response = await client.get(f"{BASE_URL}/jobs", params=params)
+            if response.status_code != 200:
+                return {
+                    "requested_url": str(response.url),
+                    "status_code": response.status_code,
+                    "error": response.text
+                }
 
-        try:
-            json_data = response.json()
-        except Exception:
-            json_data = {"raw_text": response.text}
-
-        return {
-            "status": response.status_code,
-            "url": str(response.url),
-            "response": json_data
-        }
+            data = response.json()
+            return {
+                "requested_url": str(response.url),
+                "status_code": response.status_code,
+                "total_returned": len(data.get("Data", [])),
+                "results": data.get("Data", [])
+            }
 
     except Exception as e:
         return {
-            "error": "Exception during job filter test",
+            "error": "Exception occurred while testing job filter",
             "detail": str(e)
         }
 
