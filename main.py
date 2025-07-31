@@ -82,13 +82,12 @@ def safe_get(d, *keys):
     return d or ""
 
 async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None, created_by=None, owner=None, primary_owner=None, debug=False):
-    # Let Crelate do initial name filtering if full_name provided
     params = {"limit": limit, "offset": offset}
     if full_name:
-        params["name"] = full_name  # correct query param for full name filtering
+        params["name"] = full_name.strip()
     raw_data = await fetch_crelate_data("contacts", params)
     if debug:
-        print("fetch_filtered_contacts raw_data:", raw_data)
+        print(f"[fetch_filtered_contacts] params={params} raw_data={raw_data}")
 
     if not raw_data or not isinstance(raw_data, dict):
         return []
@@ -99,27 +98,27 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
         if not isinstance(contact, dict):
             return False
         if full_name:
-            contact_name = contact.get("Name", "") or ""
-            if full_name.strip().lower() not in contact_name.strip().lower():
+            contact_name = (contact.get("Name") or "").strip()
+            if full_name.strip().lower() not in contact_name.lower():
                 return False
         if created_by:
             creator = contact.get("CreatedById") or {}
-            if creator.get("Title", "").lower() != created_by.lower():
+            if (creator.get("Title") or "").lower() != created_by.strip().lower():
                 return False
         if owner:
             owners = contact.get("Owners") or []
-            if not any(o.get("Title", "").lower() == owner.lower() for o in owners if isinstance(o, dict)):
+            if not any(((o.get("Title") or "").lower() == owner.strip().lower()) for o in owners if isinstance(o, dict)):
                 return False
         if primary_owner:
             owners = contact.get("Owners") or []
             primary = next((o for o in owners if o.get("IsPrimary") and isinstance(o, dict)), None)
-            if not primary or primary.get("Title", "").lower() != primary_owner.lower():
+            if not primary or (primary.get("Title") or "").lower() != primary_owner.strip().lower():
                 return False
         if tag:
             tags_dict = contact.get("Tags") or {}
             match = False
             for tag_list in tags_dict.values():
-                if isinstance(tag_list, list) and any(t.get("Title", "").lower() == tag.lower() for t in tag_list if isinstance(t, dict)):
+                if isinstance(tag_list, list) and any(((t.get("Title") or "").lower() == tag.strip().lower()) for t in tag_list if isinstance(t, dict)):
                     match = True
                     break
             if not match:
@@ -134,7 +133,7 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
                 "FullName": c.get("Name", ""),  # using the actual Name field from Crelate
                 "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
                 "PrimaryOwner": next((o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")), ""),
-                "Tags": [t.get("Title") for v in (c.get("Tags") or {}).values() for t in (v if isinstance(v, list) else []) if "Title" in t],
+                "Tags": [t.get("Title") for v in (c.get("Tags") or {}).values() for t in (v if isinstance(v, list) else []) if isinstance(t, dict) and t.get("Title")],
                 "Location": safe_get(c.get("Addresses_Home"), "Value") or safe_get(c.get("Addresses_Business"), "Value"),
                 "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
                 "Email_Personal": safe_get(c.get("EmailAddresses_Personal"), "Value"),
@@ -155,13 +154,16 @@ async def get_contacts(
     tag: str = None,
     created_by: str = None,
     owner: str = None,
-    primary_owner: str = None
+    primary_owner: str = None,
+    debug: bool = False
 ):
     try:
-        filtered = await fetch_filtered_contacts(limit, offset, full_name, tag, created_by, owner, primary_owner)
-        if not filtered:
-            filtered = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
-        return {"records": filtered}
+        filtered = await fetch_filtered_contacts(limit, offset, full_name, tag, created_by, owner, primary_owner, debug=debug)
+        if filtered:
+            return {"records": filtered}
+        # fallback only if remote yielded nothing
+        fallback = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
+        return {"records": fallback}
     except Exception as e:
         return {"error": "Exception caught in get_contacts", "detail": str(e)}
 
