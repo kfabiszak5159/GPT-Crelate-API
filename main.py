@@ -244,7 +244,7 @@ async def test_contacts_filter(
         if tag_names:
             params["tag_names"] = tag_names
         if full_name:
-            params["name"] = full_name  # correct query param for full name
+            params["name"] = full_name  # correct param for full name
 
         url = f"{BASE_URL}/contacts"
         async with httpx.AsyncClient() as client:
@@ -252,14 +252,14 @@ async def test_contacts_filter(
             status = response.status_code
             url_str = str(response.url)
 
-            # Try to parse JSON; if it fails, fall back to raw bytes/text.
+            # .json() and .aread() are NOT coroutines in httpx async client, so don't await them
             try:
-                parsed = await response.json()
+                parsed = response.json()
             except Exception:
                 try:
-                    parsed = await response.aread()
+                    parsed = response.aread()
                 except Exception:
-                    parsed = response.text  # last resort, should be string
+                    parsed = response.text  # fallback to string
 
         return {
             "status": status,
