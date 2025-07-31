@@ -92,8 +92,10 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
     def matches_filters(contact):
         if not isinstance(contact, dict):
             return False
-        if full_name and contact.get("FullName", "").lower() != full_name.lower():
-            return False
+        if full_name:
+            contact_name = contact.get("Name", "") or ""
+            if full_name.strip().lower() not in contact_name.strip().lower():
+                return False
         if created_by:
             creator = contact.get("CreatedById") or {}
             if creator.get("Title", "").lower() != created_by.lower():
@@ -123,7 +125,7 @@ async def fetch_filtered_contacts(limit=100, offset=0, full_name=None, tag=None,
         if matches_filters(c):
             results.append({
                 "Id": c.get("Id", ""),
-                "FullName": c.get("FullName", ""),
+                "FullName": c.get("Name", ""),  # using the actual Name field from Crelate
                 "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
                 "PrimaryOwner": next((o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")), ""),
                 "Tags": [t.get("Title") for v in (c.get("Tags") or {}).values() for t in (v if isinstance(v, list) else []) if "Title" in t],
@@ -291,7 +293,7 @@ async def get_contact_artifacts_by_id(contact_id: str):
                 return {
                     "error": "Failed to retrieve artifacts",
                     "status_code": response.status_code,
-                    "response": response.text
+                        "response": response.text
                 }
             data = response.json()
 
