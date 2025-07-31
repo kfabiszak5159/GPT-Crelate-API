@@ -244,29 +244,34 @@ async def test_contacts_filter(
         if tag_names:
             params["tag_names"] = tag_names
         if full_name:
-            params["name"] = full_name  # correct param for full name filtering
+            params["name"] = full_name  # correct query param for full name
 
         url = f"{BASE_URL}/contacts"
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params={**params, "api_key": API_KEY})
-            if response.status_code == 200:
+            status = response.status_code
+            url_str = str(response.url)
+
+            # Try to parse JSON; if it fails, fall back to raw bytes/text.
+            try:
                 parsed = await response.json()
-            else:
-                # fallback to raw text if not JSON
+            except Exception:
                 try:
                     parsed = await response.aread()
                 except Exception:
-                    parsed = response.text
-            result = {
-                "status": response.status_code,
-                "url": str(response.url),
-                "response": parsed
-            }
-        return result
+                    parsed = response.text  # last resort, should be string
+
+        return {
+            "status": status,
+            "url": url_str,
+            "response": parsed
+        }
 
     except Exception as e:
-        return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
-
+        return {
+            "error": "Exception occurred in /test-contacts-filter",
+            "detail": str(e)
+        }
 
 @app.get("/test-jobs-filter")
 async def test_jobs_filter(
