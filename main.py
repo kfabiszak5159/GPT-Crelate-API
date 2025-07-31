@@ -226,32 +226,33 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
 
 @app.get("/test-jobs-filter")
 async def test_jobs_filter(
-    tag_names: str = None,
-    created_by: str = None,
-    created_by_id: str = None,
-    published: bool = None,
-    limit: int = 100,
-    offset: int = 0
+    tag_names: str = Query(None, description="Filter jobs by tag"),
+    name: str = Query(None, description="Filter jobs by job name/title"),
+    limit: int = 100
 ):
-    params = {"api_key": API_KEY, "limit": limit, "offset": offset}
+    try:
+        params = {"limit": limit, "api_key": API_KEY}
+        if tag_names:
+            params["tag_names"] = tag_names
+        if name:
+            params["name"] = name
 
-    if tag_names:
-        params["tag_names"] = tag_names
-    if created_by:
-        params["CreatedBy"] = created_by
-    if created_by_id:
-        params["CreatedById"] = created_by_id
-    if published is not None:
-        params["published"] = str(published).lower()
+        url = f"{BASE_URL}/jobs"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, params=params)
 
-    url = f"{BASE_URL}/jobs"
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, params=params)
         return {
             "status": response.status_code,
             "url": str(response.url),
             "response": response.json() if response.status_code == 200 else response.text
         }
+
+    except Exception as e:
+        return {
+            "error": "Exception in /test-jobs-filter",
+            "detail": str(e)
+        }
+
 
 
 @app.get("/contacts/id/{contact_id}/artifacts")
