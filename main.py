@@ -244,15 +244,23 @@ async def test_contacts_filter(
         if tag_names:
             params["tag_names"] = tag_names
         if full_name:
-            params["FullName"] = full_name  # Use PascalCase as seen in Crelate's response structure
+            params["name"] = full_name  # correct param for full name filtering
 
         url = f"{BASE_URL}/contacts"
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params={**params, "api_key": API_KEY})
+            if response.status_code == 200:
+                parsed = await response.json()
+            else:
+                # fallback to raw text if not JSON
+                try:
+                    parsed = await response.aread()
+                except Exception:
+                    parsed = response.text
             result = {
                 "status": response.status_code,
                 "url": str(response.url),
-                "response": await response.json() if response.status_code == 200 else await response.aread()
+                "response": parsed
             }
         return result
 
