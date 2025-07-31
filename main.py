@@ -225,36 +225,32 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
 @app.get("/test-jobs-filter")
-async def test_jobs_filter(tag: str = "Direct Hire"):
-    """
-    Test endpoint to fetch jobs filtered by tag name (e.g., "Direct Hire").
-    """
-    try:
-        params = {
-            "api_key": API_KEY,
-            "tag_names": tag
-        }
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{BASE_URL}/jobs", params=params)
-            if response.status_code != 200:
-                return {
-                    "requested_url": str(response.url),
-                    "status_code": response.status_code,
-                    "error": response.text
-                }
+async def test_jobs_filter(
+    tag_names: str = None,
+    created_by: str = None,
+    created_by_id: str = None,
+    published: bool = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    params = {"api_key": API_KEY, "limit": limit, "offset": offset}
 
-            data = response.json()
-            return {
-                "requested_url": str(response.url),
-                "status_code": response.status_code,
-                "total_returned": len(data.get("Data", [])),
-                "results": data.get("Data", [])
-            }
+    if tag_names:
+        params["tag_names"] = tag_names
+    if created_by:
+        params["CreatedBy"] = created_by
+    if created_by_id:
+        params["CreatedById"] = created_by_id
+    if published is not None:
+        params["published"] = str(published).lower()
 
-    except Exception as e:
+    url = f"{BASE_URL}/jobs"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, params=params)
         return {
-            "error": "Exception occurred while testing job filter",
-            "detail": str(e)
+            "status": response.status_code,
+            "url": str(response.url),
+            "response": response.json() if response.status_code == 200 else response.text
         }
 
 
