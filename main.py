@@ -396,5 +396,181 @@ async def get_contact_artifacts_by_id(contact_id: str):
     except Exception as e:
         return {"error": "Exception retrieving contact artifacts", "detail": str(e)}
 
+# Helper to fetch raw contacts from Crelate with minimal server-side filtering (like test-contacts-filter)
+async def fetch_raw_contacts_from_crelate(
+    limit=100,
+    offset=0,
+    full_name=None,
+    tag=None,
+    created_by=None,
+    owner=None,
+    primary_owner=None,
+):
+    params = {"limit": limit, "offset": offset}
+    if full_name:
+        parts = full_name.strip().split()
+        params["first_name"] = parts[0]
+        if len(parts) > 1:
+            params["last_name"] = " ".join(parts[1:])
+    if tag:
+        params["tag_names"] = tag
+    if created_by:
+        params["created_by"] = created_by
+    if owner:
+        params["owner"] = owner
+    if primary_owner:
+        params["primary_owner"] = primary_owner
+
+    # Use header for API key (more consistent than query param)
+    url = f"{BASE_URL}/contacts"
+    headers = {"X-Api-Key": API_KEY}
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, params=params, headers=headers)
+    if response.status_code != 200:
+        return {
+            "requested_url": str(response.url),
+            "status_code": response.status_code,
+            "error": response.text,
+        }
+    try:
+        return response.json()
+    except Exception as e:
+        return {
+            "requested_url": str(response.url),
+            "status_code": response.status_code,
+            "error": f"Failed to parse JSON: {str(e)}",
+            "raw_text": response.text,
+        }
+
+
+@app.get("/new-contacts")
+async def new_contacts(
+    limit: int = Query(100, ge=1, le=100),
+    offset: int = 0,
+    full_name: str = None,
+    tag: str = None,
+    created_by: str = None,
+    owner: str = None,
+    primary_owner: str = None,
+    debug: bool = False,
+):
+    try:
+        # 1. Fetch raw data from Crelate (like test-contacts-filter)
+        raw_data = await fetch_raw_contacts_from_crelate(
+            limit=limit,
+            offset=offset,
+            full_name=full_name,
+            tag=tag,
+            created_by=created_by,
+            owner=owner,
+            primary_owner=primary_owner,
+        )
+        if debug:
+            print(f"[new_contacts] raw_params full_name={full_name} tag={tag} created_by={created_by} "
+                  f"owner={owner} primary_owner={primary_owner} raw_data={raw_data}")
+
+        contacts = []
+        if isinstance(raw_data, dict):
+            contacts = raw_data.get("Data", []) or []
+
+        # 2. Apply the same client-side filtering logic as fetch_filtered_contacts
+        target = normalize_name(full_name) if full_name else None
+
+        def matches_filters(contact):
+            if not isinstance(contact, dict):
+                return False
+
+            if target:
+                contact_name = normalize_name(contact.get("Name", "") or "")
+                reversed_contact = " ".join(reversed(contact_name.split()))
+                if target not in contact_name and target not in reversed_contact:
+                    return False
+
+            if created_by:
+                creator = contact.get("CreatedById") or {}
+                if (creator.get("Title") or "").strip().lower() != created_by.strip().lower():
+                    return False
+
+            if owner:
+                owners = contact.get("Owners") or []
+                if not any(
+                    (o.get("Title") or "").strip().lower() == owner.strip().lower()
+                    for o in owners
+                    if isinstance(o, dict)
+                ):
+                    return False
+
+            if primary_owner:
+                owners = contact.get("Owners") or []
+                primary = next(
+                    (o for o in owners if o.get("IsPrimary") and isinstance(o, dict)), None
+                )
+                if not primary or (
+                    primary.get("Title") or ""
+                ).strip().lower() != primary_owner.strip().lower():
+                    return False
+
+            if tag:
+                tags_dict = contact.get("Tags") or {}
+                match = False
+                for tag_list in tags_dict.values():
+                    if isinstance(tag_list, list) and any(
+                        (t.get("Title") or "").strip().lower() == tag.strip().lower()
+                        for t in (tag_list if isinstance(tag_list, list) else [])
+                        if isinstance(t, dict)
+                    ):
+                        match = True
+                        break
+                if not match:
+                    return False
+
+            return True
+
+        results = []
+        for c in contacts:
+            if matches_filters(c):
+                results.append(
+                    {
+                        "Id": c.get("Id", ""),
+                        "FullName": c.get("Name", ""),
+                        "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
+                        "PrimaryOwner": next(
+                            (o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")),
+                            "",
+                        ),
+                        "Tags": [
+                            t.get("Title")
+                            for v in (c.get("Tags") or {}).values()
+                            for t in (v if isinstance(v, list) else [])
+                            if isinstance(t, dict) and t.get("Title")
+                        ],
+                        "Location": safe_get(c.get("Addresses_Home"), "Value")
+                        or safe_get(c.get("Addresses_Business"), "Value"),
+                        "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
+                        "Email_Personal": safe_get(
+                            c.get("EmailAddresses_Personal"), "Value"
+                        ),
+                        "Phone_Work": safe_get(c.get("PhoneNumbers_Work_Main"), "Value"),
+                        "Phone_Mobile": safe_get(c.get("PhoneNumbers_Mobile"), "Value"),
+                        "LastActivityDate": c.get("LastActivityDate", ""),
+                        "LastActivityRegarding": safe_get(
+                            c.get("LastActivityRegardingId"), "Title"
+                        ),
+                        "Description": c.get("Description", ""),
+                    }
+                )
+
+        if results:
+            return {"records": results}
+
+        # 3. Fallback to local contacts if nothing passed filtering
+        fallback = filter_local_contacts(
+            full_name, tag, created_by, owner, primary_owner
+        )
+        return {"records": fallback}
+
+    except Exception as e:
+        return {"error": "Exception caught in new_contacts", "detail": str(e)}
+
 
 app.mount("/.well-known", StaticFiles(directory=".well-known"), name="well-known")
