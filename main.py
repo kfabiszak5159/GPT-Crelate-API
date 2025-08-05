@@ -317,99 +317,44 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
 
-@app.get("/test-contacts-filter")
-async def test_contacts_filter(
-    tag: str = Query(None, alias="tag_names"),
-    full_name: str = Query(None, alias="full_name"),
-    created_by: str = None,
-    owner: str = None,
-    primary_owner: str = None,
-    limit: int = 100,
-    offset: int = 0,
-    debug: bool = False,
-):
-    try:
-        # Build server-side params like original test endpoint
-        params = {"limit": limit, "offset": offset}
-        if tag:
-            params["tag_names"] = tag
-        if full_name:
-            parts = full_name.strip().split()
-            params["first_name"] = parts[0]
-            if len(parts) > 1:
-                params["last_name"] = " ".join(parts[1:])
-        if created_by:
-            params["created_by"] = created_by
-        if owner:
-            params["owner"] = owner
-        if primary_owner:
-            params["primary_owner"] = primary_owner
+ @app.get("/test-contacts-filter")
+ async def test_contacts_filter(
+     tag_names: str = Query(None, alias="tag_names"),
+     full_name: str = Query(None, alias="full_name"),
++    ids: str = Query(None, alias="ids"),
+ ):
+     try:
+         params = {"api_key": API_KEY}
 
-        url = f"{BASE_URL}/contacts"
-        headers = {"X-Api-Key": API_KEY}
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params, headers=headers)
+         if tag_names:
+             params["tag_names"] = tag_names
 
-        if debug:
-            try:
-                parsed_debug = response.json()
-            except Exception:
-                parsed_debug = response.text
-            print(f"[test_contacts_filter] params={params} status={response.status_code} response={parsed_debug}")
++        if ids:
++            # pass comma-separated list of UUIDs through to server-side filter
++            params["ids"] = ids
 
-        contacts = []
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                contacts = data.get("Data", []) or []
-            except Exception:
-                contacts = []
+         if full_name:
+             parts = full_name.strip().split()
+             params["first_name"] = parts[0]
+             if len(parts) > 1:
+                 params["last_name"] = " ".join(parts[1:])
 
-        # Shape results exactly like /contacts does, but do NOT apply extra filtering
-        results = []
-        for c in contacts:
-            if not isinstance(c, dict):
-                continue
-            results.append(
-                {
-                    "Id": c.get("Id", ""),
-                    "FullName": c.get("Name", ""),
-                    "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
-                    "PrimaryOwner": next(
-                        (o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")),
-                        "",
-                    ),
-                    "Tags": [
-                        t.get("Title")
-                        for v in (c.get("Tags") or {}).values()
-                        for t in (v if isinstance(v, list) else [])
-                        if isinstance(t, dict) and t.get("Title")
-                    ],
-                    "Location": safe_get(c.get("Addresses_Home"), "Value")
-                    or safe_get(c.get("Addresses_Business"), "Value"),
-                    "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
-                    "Email_Personal": safe_get(
-                        c.get("EmailAddresses_Personal"), "Value"
-                    ),
-                    "Phone_Work": safe_get(c.get("PhoneNumbers_Work_Main"), "Value"),
-                    "Phone_Mobile": safe_get(c.get("PhoneNumbers_Mobile"), "Value"),
-                    "LastActivityDate": c.get("LastActivityDate", ""),
-                    "LastActivityRegarding": safe_get(
-                        c.get("LastActivityRegardingId"), "Title"
-                    ),
-                    "Description": c.get("Description", ""),
-                }
-            )
+         url = f"{BASE_URL}/contacts"
+         async with httpx.AsyncClient() as client:
+             response = await client.get(url, params=params)
 
-        if results:
-            return {"records": results}
+         status = response.status_code
+         url_str = str(response.url)
+         try:
+             parsed = response.json()
+         except Exception:
+             parsed = response.text
 
-        # fallback same as /contacts
-        fallback = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
-        return {"records": fallback}
+         return {"status": status, "url": url_str, "response": parsed}
 
-    except Exception as e:
-        return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
+     except Exception as e:
+         return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
+
 
 
 
