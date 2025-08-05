@@ -329,11 +329,11 @@ async def test_contacts_filter(
     debug: bool = False,
 ):
     try:
-        # Build server-side params like original test endpoint
+        # Build server-side params
         params = {
             "limit": limit,
             "offset": offset,
-            "sort_by": "createdOn desc"  # ✅ SORTING added
+            "sort_by": "createdOn desc"  # ✅ Sort by newest
         }
         if tag:
             params["tag_names"] = tag
@@ -369,7 +369,7 @@ async def test_contacts_filter(
             except Exception:
                 contacts = []
 
-        # Shape results exactly like /contacts does, but do NOT apply extra filtering
+        # Shape response
         results = []
         for c in contacts:
             if not isinstance(c, dict):
@@ -377,7 +377,7 @@ async def test_contacts_filter(
             results.append(
                 {
                     "Id": c.get("Id", ""),
-                    "FullName": c.get("Name", ""),
+                    "FullName": c.get("FullName", ""),  # ✅ First Last format
                     "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
                     "PrimaryOwner": next(
                         (o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")),
@@ -392,9 +392,7 @@ async def test_contacts_filter(
                     "Location": safe_get(c.get("Addresses_Home"), "Value")
                     or safe_get(c.get("Addresses_Business"), "Value"),
                     "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
-                    "Email_Personal": safe_get(
-                        c.get("EmailAddresses_Personal"), "Value"
-                    ),
+                    "Email_Personal": safe_get(c.get("EmailAddresses_Personal"), "Value"),
                     "Phone_Work": safe_get(c.get("PhoneNumbers_Work_Main"), "Value"),
                     "Phone_Mobile": safe_get(c.get("PhoneNumbers_Mobile"), "Value"),
                     "LastActivityDate": c.get("LastActivityDate", ""),
@@ -408,12 +406,13 @@ async def test_contacts_filter(
         if results:
             return {"records": results}
 
-        # fallback same as /contacts
+        # Fallback to local data
         fallback = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
         return {"records": fallback}
 
     except Exception as e:
         return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
+
 
 
 
