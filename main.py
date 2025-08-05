@@ -325,7 +325,7 @@ async def test_contacts_filter(
     try:
         params = {
             "api_key": API_KEY,
-            "sort_by": "createdOn desc"  # <-- NEW SORTING BEHAVIOR
+            "sort_by": "createdOn desc"  # Sort by newest CreatedOn
         }
 
         if tag_names:
@@ -347,12 +347,52 @@ async def test_contacts_filter(
         try:
             parsed = response.json()
         except Exception:
-            parsed = response.text
+            return {
+                "status": status,
+                "url": url_str,
+                "response": "Failed to parse JSON"
+            }
+
+        raw_contacts = parsed.get("Data", [])
+
+        def safe_get(d, *keys):
+            for key in keys:
+                if d is None:
+                    return ""
+                d = d.get(key)
+            return d or ""
+
+        processed_contacts = []
+        for c in raw_contacts:
+            processed_contacts.append({
+                "Id": c.get("Id", ""),
+                "FullName": c.get("Name", ""),
+                "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
+                "PrimaryOwner": next(
+                    (o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")),
+                    "",
+                ),
+                "Tags": [
+                    t.get("Title")
+                    for v in (c.get("Tags") or {}).values()
+                    for t in (v if isinstance(v, list) else [])
+                    if isinstance(t, dict) and t.get("Title")
+                ],
+                "Location": safe_get(c.get("Addresses_Home"), "Value")
+                or safe_get(c.get("Addresses_Business"), "Value"),
+                "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
+                "Email_Personal": safe_get(c.get("EmailAddresses_Personal"), "Value"),
+                "Phone_Work": safe_get(c.get("PhoneNumbers_Work_Main"), "Value"),
+                "Phone_Mobile": safe_get(c.get("PhoneNumbers_Mobile"), "Value"),
+                "LastActivityDate": c.get("LastActivityDate", ""),
+                "LastActivityRegarding": safe_get(c.get("LastActivityRegardingId"), "Title"),
+                "Description": c.get("Description", "")
+            })
 
         return {
             "status": status,
             "url": url_str,
-            "response": parsed
+            "records": processed_contacts
         }
 
     except Exception as e:
