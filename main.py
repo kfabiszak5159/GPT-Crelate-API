@@ -321,16 +321,12 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
 async def test_contacts_filter(
     tag_names: str = Query(None, alias="tag_names"),
     full_name: str = Query(None, alias="full_name"),
-    contact_id: str = Query(None, alias="id"),  # Added id filtering
 ):
     try:
         params = {"api_key": API_KEY}
 
         if tag_names:
             params["tag_names"] = tag_names
-
-        if contact_id:
-            params["id"] = contact_id  # Apply filter for Id
 
         if full_name:
             parts = full_name.strip().split()
@@ -352,10 +348,7 @@ async def test_contacts_filter(
         return {"status": status, "url": url_str, "response": parsed}
 
     except Exception as e:
-        return {
-            "error": "Exception occurred in /test-contacts-filter",
-            "detail": str(e)
-        }
+        return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
 
 
 @app.get("/test-jobs-filter")
@@ -402,53 +395,6 @@ async def get_contact_artifacts_by_id(contact_id: str):
 
     except Exception as e:
         return {"error": "Exception retrieving contact artifacts", "detail": str(e)}
-
-# Helper to fetch raw contacts from Crelate with minimal server-side filtering (like test-contacts-filter)
-async def fetch_raw_contacts_from_crelate(
-    limit=100,
-    offset=0,
-    full_name=None,
-    tag=None,
-    created_by=None,
-    owner=None,
-    primary_owner=None,
-):
-    params = {"limit": limit, "offset": offset}
-    if full_name:
-        parts = full_name.strip().split()
-        params["first_name"] = parts[0]
-        if len(parts) > 1:
-            params["last_name"] = " ".join(parts[1:])
-    if tag:
-        params["tag_names"] = tag
-    if created_by:
-        params["created_by"] = created_by
-    if owner:
-        params["owner"] = owner
-    if primary_owner:
-        params["primary_owner"] = primary_owner
-
-    # Use header for API key (more consistent than query param)
-    url = f"{BASE_URL}/contacts"
-    headers = {"X-Api-Key": API_KEY}
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, params=params, headers=headers)
-    if response.status_code != 200:
-        return {
-            "requested_url": str(response.url),
-            "status_code": response.status_code,
-            "error": response.text,
-        }
-    try:
-        return response.json()
-    except Exception as e:
-        return {
-            "requested_url": str(response.url),
-            "status_code": response.status_code,
-            "error": f"Failed to parse JSON: {str(e)}",
-            "raw_text": response.text,
-        }
-
 
 
 app.mount("/.well-known", StaticFiles(directory=".well-known"), name="well-known")
