@@ -329,8 +329,12 @@ async def test_contacts_filter(
     debug: bool = False,
 ):
     try:
-        # 1) Build server-side params like original test endpoint
-        params = {"limit": limit, "offset": offset}
+        # Build server-side params like original test endpoint
+        params = {
+            "limit": limit,
+            "offset": offset,
+            "sort_by": "createdOn desc"  # ✅ SORTING added
+        }
         if tag:
             params["tag_names"] = tag
         if full_name:
@@ -345,7 +349,6 @@ async def test_contacts_filter(
         if primary_owner:
             params["primary_owner"] = primary_owner
 
-        # 2) Fetch from Crelate
         url = f"{BASE_URL}/contacts"
         headers = {"X-Api-Key": API_KEY}
         async with httpx.AsyncClient() as client:
@@ -358,20 +361,15 @@ async def test_contacts_filter(
                 parsed_debug = response.text
             print(f"[test_contacts_filter] params={params} status={response.status_code} response={parsed_debug}")
 
-        # 3) Parse & guard against null Data
         contacts = []
         if response.status_code == 200:
             try:
                 data = response.json()
-                contacts = data.get("Data") or []
+                contacts = data.get("Data", []) or []
             except Exception:
                 contacts = []
 
-        # ─── NEW: sort by CreatedOn newest-first ───
-        # assumes each contact dict has an ISO string at key "CreatedOn"
-        contacts.sort(key=lambda c: c.get("CreatedOn", ""), reverse=True)
-
-        # 4) Shape results exactly like /contacts does
+        # Shape results exactly like /contacts does, but do NOT apply extra filtering
         results = []
         for c in contacts:
             if not isinstance(c, dict):
@@ -382,7 +380,7 @@ async def test_contacts_filter(
                     "FullName": c.get("Name", ""),
                     "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
                     "PrimaryOwner": next(
-                        (o.get("Title") for o in (c.get("Owners") or []) if o.get("IsPrimary")),
+                        (o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")),
                         "",
                     ),
                     "Tags": [
@@ -407,16 +405,15 @@ async def test_contacts_filter(
                 }
             )
 
-        # 5) Return or fallback
         if results:
             return {"records": results}
 
+        # fallback same as /contacts
         fallback = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
         return {"records": fallback}
 
     except Exception as e:
         return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
-
 
 
 
