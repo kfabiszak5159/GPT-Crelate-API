@@ -323,7 +323,10 @@ async def test_contacts_filter(
     full_name: str = Query(None, alias="full_name"),
 ):
     try:
-        params = {"api_key": API_KEY}
+        params = {
+            "api_key": API_KEY,
+            "sort_by": "createdOn desc"  # <-- NEW SORTING BEHAVIOR
+        }
 
         if tag_names:
             params["tag_names"] = tag_names
@@ -340,15 +343,24 @@ async def test_contacts_filter(
 
         status = response.status_code
         url_str = str(response.url)
+
         try:
             parsed = response.json()
         except Exception:
             parsed = response.text
 
-        return {"status": status, "url": url_str, "response": parsed}
+        return {
+            "status": status,
+            "url": url_str,
+            "response": parsed
+        }
 
     except Exception as e:
-        return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
+        return {
+            "error": "Exception occurred in /test-contacts-filter",
+            "detail": str(e)
+        }
+
 
 
 @app.get("/test-jobs-filter")
