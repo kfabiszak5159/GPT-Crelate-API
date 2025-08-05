@@ -319,87 +319,104 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
 
 @app.get("/test-contacts-filter")
 async def test_contacts_filter(
-    tag_names: str = Query(None, alias="tag_names"),
+    tag: str = Query(None, alias="tag_names"),
     full_name: str = Query(None, alias="full_name"),
+    created_by: str = None,
+    owner: str = None,
+    primary_owner: str = None,
+    limit: int = 100,
+    offset: int = 0,
+    debug: bool = False,
 ):
     try:
-        params = {
-            "api_key": API_KEY,
-            "sort_by": "createdOn desc"  # Sort by newest CreatedOn
-        }
-
-        if tag_names:
-            params["tag_names"] = tag_names
-
+        # 1) Build server-side params like original test endpoint
+        params = {"limit": limit, "offset": offset}
+        if tag:
+            params["tag_names"] = tag
         if full_name:
             parts = full_name.strip().split()
             params["first_name"] = parts[0]
             if len(parts) > 1:
                 params["last_name"] = " ".join(parts[1:])
+        if created_by:
+            params["created_by"] = created_by
+        if owner:
+            params["owner"] = owner
+        if primary_owner:
+            params["primary_owner"] = primary_owner
 
+        # 2) Fetch from Crelate
         url = f"{BASE_URL}/contacts"
+        headers = {"X-Api-Key": API_KEY}
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params)
+            response = await client.get(url, params=params, headers=headers)
 
-        status = response.status_code
-        url_str = str(response.url)
+        if debug:
+            try:
+                parsed_debug = response.json()
+            except Exception:
+                parsed_debug = response.text
+            print(f"[test_contacts_filter] params={params} status={response.status_code} response={parsed_debug}")
 
-        try:
-            parsed = response.json()
-        except Exception:
-            return {
-                "status": status,
-                "url": url_str,
-                "response": "Failed to parse JSON"
-            }
+        # 3) Parse & guard against null Data
+        contacts = []
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                contacts = data.get("Data") or []
+            except Exception:
+                contacts = []
 
-        raw_contacts = parsed.get("Data", [])
+        # ─── NEW: sort by CreatedOn newest-first ───
+        # assumes each contact dict has an ISO string at key "CreatedOn"
+        contacts.sort(key=lambda c: c.get("CreatedOn", ""), reverse=True)
 
-        def safe_get(d, *keys):
-            for key in keys:
-                if d is None:
-                    return ""
-                d = d.get(key)
-            return d or ""
+        # 4) Shape results exactly like /contacts does
+        results = []
+        for c in contacts:
+            if not isinstance(c, dict):
+                continue
+            results.append(
+                {
+                    "Id": c.get("Id", ""),
+                    "FullName": c.get("Name", ""),
+                    "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
+                    "PrimaryOwner": next(
+                        (o.get("Title") for o in (c.get("Owners") or []) if o.get("IsPrimary")),
+                        "",
+                    ),
+                    "Tags": [
+                        t.get("Title")
+                        for v in (c.get("Tags") or {}).values()
+                        for t in (v if isinstance(v, list) else [])
+                        if isinstance(t, dict) and t.get("Title")
+                    ],
+                    "Location": safe_get(c.get("Addresses_Home"), "Value")
+                    or safe_get(c.get("Addresses_Business"), "Value"),
+                    "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
+                    "Email_Personal": safe_get(
+                        c.get("EmailAddresses_Personal"), "Value"
+                    ),
+                    "Phone_Work": safe_get(c.get("PhoneNumbers_Work_Main"), "Value"),
+                    "Phone_Mobile": safe_get(c.get("PhoneNumbers_Mobile"), "Value"),
+                    "LastActivityDate": c.get("LastActivityDate", ""),
+                    "LastActivityRegarding": safe_get(
+                        c.get("LastActivityRegardingId"), "Title"
+                    ),
+                    "Description": c.get("Description", ""),
+                }
+            )
 
-        processed_contacts = []
-        for c in raw_contacts:
-            processed_contacts.append({
-                "Id": c.get("Id", ""),
-                "FullName": c.get("Name", ""),
-                "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
-                "PrimaryOwner": next(
-                    (o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")),
-                    "",
-                ),
-                "Tags": [
-                    t.get("Title")
-                    for v in (c.get("Tags") or {}).values()
-                    for t in (v if isinstance(v, list) else [])
-                    if isinstance(t, dict) and t.get("Title")
-                ],
-                "Location": safe_get(c.get("Addresses_Home"), "Value")
-                or safe_get(c.get("Addresses_Business"), "Value"),
-                "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
-                "Email_Personal": safe_get(c.get("EmailAddresses_Personal"), "Value"),
-                "Phone_Work": safe_get(c.get("PhoneNumbers_Work_Main"), "Value"),
-                "Phone_Mobile": safe_get(c.get("PhoneNumbers_Mobile"), "Value"),
-                "LastActivityDate": c.get("LastActivityDate", ""),
-                "LastActivityRegarding": safe_get(c.get("LastActivityRegardingId"), "Title"),
-                "Description": c.get("Description", "")
-            })
+        # 5) Return or fallback
+        if results:
+            return {"records": results}
 
-        return {
-            "status": status,
-            "url": url_str,
-            "records": processed_contacts
-        }
+        fallback = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
+        return {"records": fallback}
 
     except Exception as e:
-        return {
-            "error": "Exception occurred in /test-contacts-filter",
-            "detail": str(e)
-        }
+        return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
+
 
 
 
