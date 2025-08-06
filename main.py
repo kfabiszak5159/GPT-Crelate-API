@@ -316,7 +316,6 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
     except Exception as e:
         return {"error": "Exception occurred while posting by name", "detail": str(e)}
 
-
 @app.get("/test-contacts-filter")
 async def test_contacts_filter(
     tag: str = Query(None, alias="tag_names"),
@@ -414,8 +413,6 @@ async def test_contacts_filter(
 
     except Exception as e:
         return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
-
-
 
 @app.get("/test-jobs-filter")
 async def test_jobs_filter(
