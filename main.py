@@ -328,11 +328,11 @@ async def test_contacts_filter(
     debug: bool = False,
 ):
     try:
-        # Build server-side params like original test endpoint
+        # Build Crelate query params
         params = {
             "limit": limit,
             "offset": offset,
-            "sort_by": "createdOn desc"  # ✅ SORTING added
+            "sort_by": "createdOn desc"  # Sort by newest
         }
         if tag:
             params["tag_names"] = tag
@@ -350,25 +350,32 @@ async def test_contacts_filter(
 
         url = f"{BASE_URL}/contacts"
         headers = {"X-Api-Key": API_KEY}
+
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params=params, headers=headers)
 
+        # Debug raw response (optional)
         if debug:
+            print(f"[test_contacts_filter] URL: {response.url}")
             try:
-                parsed_debug = response.json()
-            except Exception:
-                parsed_debug = response.text
-            print(f"[test_contacts_filter] params={params} status={response.status_code} response={parsed_debug}")
+                print("[Raw JSON]:", response.json())
+            except:
+                print("[Raw Text]:", response.text)
 
         contacts = []
         if response.status_code == 200:
             try:
                 data = response.json()
-                contacts = data.get("Data", []) or []
-            except Exception:
+                if isinstance(data, dict):
+                    contacts = data.get("Data") or []
+                    if not isinstance(contacts, list):
+                        contacts = []
+            except Exception as e:
+                if debug:
+                    print(f"[parse error]: {str(e)}")
                 contacts = []
 
-        # Shape results exactly like /contacts does, but do NOT apply extra filtering
+        # Shape response
         results = []
         for c in contacts:
             if not isinstance(c, dict):
@@ -376,7 +383,7 @@ async def test_contacts_filter(
             results.append(
                 {
                     "Id": c.get("Id", ""),
-                    "FullName": c.get("Name", ""),
+                    "FullName": c.get("FullName", ""),  # First Last format
                     "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
                     "PrimaryOwner": next(
                         (o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")),
@@ -391,9 +398,7 @@ async def test_contacts_filter(
                     "Location": safe_get(c.get("Addresses_Home"), "Value")
                     or safe_get(c.get("Addresses_Business"), "Value"),
                     "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
-                    "Email_Personal": safe_get(
-                        c.get("EmailAddresses_Personal"), "Value"
-                    ),
+                    "Email_Personal": safe_get(c.get("EmailAddresses_Personal"), "Value"),
                     "Phone_Work": safe_get(c.get("PhoneNumbers_Work_Main"), "Value"),
                     "Phone_Mobile": safe_get(c.get("PhoneNumbers_Mobile"), "Value"),
                     "LastActivityDate": c.get("LastActivityDate", ""),
@@ -407,12 +412,25 @@ async def test_contacts_filter(
         if results:
             return {"records": results}
 
-        # fallback same as /contacts
+        # Fallback to local Excel contacts
+        if debug:
+            print("[Fallback] Using Excel contacts")
+
         fallback = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
-        return {"records": fallback}
+        return {
+            "records": fallback,
+            "fallback_used": True
+        }
 
     except Exception as e:
-        return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
+        # Catch-all for unexpected errors
+        fallback = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
+        return {
+            "records": fallback,
+            "fallback_used": True,
+            "error": str(e)
+        }
+
 
 @app.get("/test-jobs-filter")
 async def test_jobs_filter(
