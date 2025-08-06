@@ -10,32 +10,32 @@ app = FastAPI()
 API_KEY = os.getenv("CRELATE_API_KEY") or "46gcq4k7bw9yysb9thazasxxwy"
 BASE_URL = "https://app.crelate.com/api3"
 
-# Updated: Load local contact fallback database dynamically each time
+# Load local contact fallback database
 EXCEL_CONTACTS_PATH = "API Contacts.xlsx"
+try:
+    local_contacts_df = pd.read_excel(EXCEL_CONTACTS_PATH)
+    local_contacts_df.columns = local_contacts_df.columns.str.strip()
+except Exception:
+    local_contacts_df = pd.DataFrame()
 
-def load_local_contacts_df():
-    try:
-        df = pd.read_excel(EXCEL_CONTACTS_PATH)
-        df.columns = df.columns.str.strip()
-        return df
-    except Exception:
-        return pd.DataFrame()
 
 def lookup_local_contact(full_name: str):
-    df = load_local_contacts_df()
-    if df.empty:
+    if local_contacts_df.empty:
         return None
-    match = df[df["Full Name"].str.lower() == full_name.strip().lower()]
+    match = local_contacts_df[
+        local_contacts_df["Full Name"].str.lower() == full_name.strip().lower()
+    ]
     if not match.empty:
         return match.iloc[0]["Id"]
     return None
 
+
 def filter_local_contacts(
     full_name=None, tag=None, created_by=None, owner=None, primary_owner=None
 ):
-    df = load_local_contacts_df()
-    if df.empty:
+    if local_contacts_df.empty:
         return []
+    df = local_contacts_df.copy()
 
     def safe_filter(col, val, contains=False):
         if col not in df.columns:
@@ -319,101 +319,48 @@ async def post_screen_activity_by_name(payload: dict = Body(...)):
 
 @app.get("/test-contacts-filter")
 async def test_contacts_filter(
-    tag: str = Query(None, alias="tag_names"),
+    tag_names: str = Query(None, alias="tag_names"),
     full_name: str = Query(None, alias="full_name"),
-    created_by: str = None,
-    owner: str = None,
-    primary_owner: str = None,
-    limit: int = 100,
-    offset: int = 0,
-    debug: bool = False,
 ):
     try:
-        # Build server-side params like original test endpoint
         params = {
-            "limit": limit,
-            "offset": offset,
-            "sort_by": "createdOn desc"  # ✅ SORTING added
+            "api_key": API_KEY,
+            "sort_by": "createdOn desc"  # <-- NEW SORTING BEHAVIOR
         }
-        if tag:
-            params["tag_names"] = tag
+
+        if tag_names:
+            params["tag_names"] = tag_names
+
         if full_name:
             parts = full_name.strip().split()
             params["first_name"] = parts[0]
             if len(parts) > 1:
                 params["last_name"] = " ".join(parts[1:])
-        if created_by:
-            params["created_by"] = created_by
-        if owner:
-            params["owner"] = owner
-        if primary_owner:
-            params["primary_owner"] = primary_owner
 
         url = f"{BASE_URL}/contacts"
-        headers = {"X-Api-Key": API_KEY}
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params, headers=headers)
+            response = await client.get(url, params=params)
 
-        if debug:
-            try:
-                parsed_debug = response.json()
-            except Exception:
-                parsed_debug = response.text
-            print(f"[test_contacts_filter] params={params} status={response.status_code} response={parsed_debug}")
+        status = response.status_code
+        url_str = str(response.url)
 
-        contacts = []
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                contacts = data.get("Data", []) or []
-            except Exception:
-                contacts = []
+        try:
+            parsed = response.json()
+        except Exception:
+            parsed = response.text
 
-        # Shape results exactly like /contacts does, but do NOT apply extra filtering
-        results = []
-        for c in contacts:
-            if not isinstance(c, dict):
-                continue
-            results.append(
-                {
-                    "Id": c.get("Id", ""),
-                    "FullName": c.get("Name", ""),
-                    "CreatedBy": safe_get(c.get("CreatedById"), "Title"),
-                    "PrimaryOwner": next(
-                        (o.get("Title") for o in c.get("Owners", []) if o.get("IsPrimary")),
-                        "",
-                    ),
-                    "Tags": [
-                        t.get("Title")
-                        for v in (c.get("Tags") or {}).values()
-                        for t in (v if isinstance(v, list) else [])
-                        if isinstance(t, dict) and t.get("Title")
-                    ],
-                    "Location": safe_get(c.get("Addresses_Home"), "Value")
-                    or safe_get(c.get("Addresses_Business"), "Value"),
-                    "Email_Work": safe_get(c.get("EmailAddresses_Work"), "Value"),
-                    "Email_Personal": safe_get(
-                        c.get("EmailAddresses_Personal"), "Value"
-                    ),
-                    "Phone_Work": safe_get(c.get("PhoneNumbers_Work_Main"), "Value"),
-                    "Phone_Mobile": safe_get(c.get("PhoneNumbers_Mobile"), "Value"),
-                    "LastActivityDate": c.get("LastActivityDate", ""),
-                    "LastActivityRegarding": safe_get(
-                        c.get("LastActivityRegardingId"), "Title"
-                    ),
-                    "Description": c.get("Description", ""),
-                }
-            )
-
-        if results:
-            return {"records": results}
-
-        # fallback same as /contacts
-        fallback = filter_local_contacts(full_name, tag, created_by, owner, primary_owner)
-        return {"records": fallback}
+        return {
+            "status": status,
+            "url": url_str,
+            "response": parsed
+        }
 
     except Exception as e:
-        return {"error": "Exception occurred in /test-contacts-filter", "detail": str(e)}
+        return {
+            "error": "Exception occurred in /test-contacts-filter",
+            "detail": str(e)
+        }
+
 
 
 @app.get("/test-jobs-filter")
