@@ -10,32 +10,32 @@ app = FastAPI()
 API_KEY = os.getenv("CRELATE_API_KEY") or "46gcq4k7bw9yysb9thazasxxwy"
 BASE_URL = "https://app.crelate.com/api3"
 
-# Load local contact fallback database
+# Updated: Load local contact fallback database dynamically each time
 EXCEL_CONTACTS_PATH = "API Contacts.xlsx"
-try:
-    local_contacts_df = pd.read_excel(EXCEL_CONTACTS_PATH)
-    local_contacts_df.columns = local_contacts_df.columns.str.strip()
-except Exception:
-    local_contacts_df = pd.DataFrame()
 
+def load_local_contacts_df():
+    try:
+        df = pd.read_excel(EXCEL_CONTACTS_PATH)
+        df.columns = df.columns.str.strip()
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 def lookup_local_contact(full_name: str):
-    if local_contacts_df.empty:
+    df = load_local_contacts_df()
+    if df.empty:
         return None
-    match = local_contacts_df[
-        local_contacts_df["Full Name"].str.lower() == full_name.strip().lower()
-    ]
+    match = df[df["Full Name"].str.lower() == full_name.strip().lower()]
     if not match.empty:
         return match.iloc[0]["Id"]
     return None
 
-
 def filter_local_contacts(
     full_name=None, tag=None, created_by=None, owner=None, primary_owner=None
 ):
-    if local_contacts_df.empty:
+    df = load_local_contacts_df()
+    if df.empty:
         return []
-    df = local_contacts_df.copy()
 
     def safe_filter(col, val, contains=False):
         if col not in df.columns:
